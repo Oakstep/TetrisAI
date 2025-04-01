@@ -1,0 +1,7 @@
+prev in AI
+move stuff 
+other things?
+
+learn stuff?
+How are we defining target columns for wide?
+How are we using what the model learns? 
