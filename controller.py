@@ -1,14 +1,10 @@
-from nbformat import current_nbformat
 import win32gui
 import win32api
 import win32con
 import mss
 import mss.tools
 import time
-import cv2
-from tetris import Tetris
 #from ai import AIPart
-import numpy as np
 
 class SimActions:
     sct = mss.mss()
@@ -57,37 +53,7 @@ class SimActions:
         win32api.SendMessage(self.game_hwnd, win32con.WM_KEYDOWN, ord('c'), 0)
         win32api.SendMessage(self.game_hwnd, win32con.WM_CHAR, ord('c'), 0)
         win32api.SendMessage(self.game_hwnd, win32con.WM_KEYUP,  ord('c'), 0)
-    def stream(self, tetris: Tetris, max_steps=500, batch_size=32):
-        step = 0
-        while True:
-            sct_img = self.sct.grab(self.monitor)
-            img = np.array(sct_img)
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            fresh_frame = img.copy()
-            res, board_array, queue, held, current = tetris.processSS(fresh_frame)
-            # Preprocess the state for AI
-            state = {
-                "grid_input": board_array.reshape(1, 20, 10),
-                "current_piece_input": np.zeros((1, 7)) if not current else np.eye(7)[ord(current) - ord('i')], #This definitely doesnt work
-                "held_piece_input": np.zeros((1, 7)) if not held else np.eye(7)[ord(held) - ord('i')], #This also definitely doesnt work
-                "next_pieces_input": np.zeros((1, 5, 7)) if not queue else np.eye(7)[[ord(p) - ord('i') for p in queue]].reshape(1, 5, 7), #Theres no way this works either?
-            }
-            #Before it remembers it needs to take the action?
-            #agent.remember(state, action, reward, next_state, done)
-
-            # Train the AI at regular intervals
-            #if step % batch_size == 0:
-            #    agent.replay(batch_size)
-            cv2.imshow('screen', res)
-            if (cv2.waitKey(1) & 0xFF) == ord('q'):
-                cv2.destroyAllWindows()
-                break
-            #if done or step >= max_steps:
-                #print(f"Stream ended. Steps: {step}, Reward: {reward}")
-                #break
-
-            #step += 1
-            time.sleep(0.01)
+    
     def perform_action(self, action, grid, piece_shape):
         target_column = action["target"]["column"]
         final_rotation = action["final_rotation"]
@@ -96,6 +62,14 @@ class SimActions:
         # Get current position and orientation
         current_column = self.get_current_piece_column(grid, piece_shape)
         current_rotation = self.get_current_rotation(piece_shape)
+        #Correct Rotation
+        while current_rotation != final_rotation:
+            if final_rotation == "clockwise":
+                self.clockwise()
+            elif final_rotation == "counterclockwise":
+                self.c_clockwise()
+            elif final_rotation == "flip":
+                self.flip()
         #Align horizontally
         while current_column < target_column:
             self.right()
@@ -103,12 +77,5 @@ class SimActions:
         while current_column > target_column:
             self.left()
             current_column -= 1
-        #Correct Rotation
-        while current_rotation != final_rotation:
-            if final_rotation == "clockwise":
-                self.simActions.clockwise()
-            elif final_rotation == "counterclockwise":
-                self.simActions.c_clockwise()
-            elif final_rotation == "flip":
-                self.simActions.flip()
-        self.simActions.hard_drop()
+        
+        self.hard_drop()

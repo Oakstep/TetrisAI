@@ -1,2 +1,2 @@
 # TetrisAI
-Im gonna kill myself
+Its not really working
