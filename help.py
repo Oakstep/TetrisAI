@@ -1,4 +1,4 @@
-from tetris import LocalTetris
+from tetris import LocalTetris, Tetris
 import random
 import numpy as np
 import random
@@ -68,7 +68,7 @@ def run_random():
 
     player.play()
 
-def test_agent(agent:AIPart, simulator:LocalTetris, visualizer, episodes=1):
+def test_agent(agent:AIPart, simulator:LocalTetris, visualizer:TetrisVisualizer, episodes=1):
     for episode in range(episodes):
         state = simulator.reset() 
         done = False
@@ -82,6 +82,7 @@ def test_agent(agent:AIPart, simulator:LocalTetris, visualizer, episodes=1):
                 break
 
             action = agent.act(state, legal_actions)
+            print(f"action: {action}")
             if action is None:
                 print("No action selected. Ending episode.")
                 break
@@ -90,7 +91,7 @@ def test_agent(agent:AIPart, simulator:LocalTetris, visualizer, episodes=1):
             print(reward)
             visualizer.visualize()
             state = next_state
-
+            time.sleep(1)
         print(f"Episode {episode + 1} finished.")
 local_tetris = LocalTetris()
 agent = AIPart(load=True)

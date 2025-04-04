@@ -1,3 +1,6 @@
+from ast import List
+from math import inf
+from threading import local
 import numpy as np
 import cv2
 import random
@@ -132,8 +135,8 @@ class Tetris:
 class TetrisPiece:
     def __init__(self, name, rotations):
         self.name = name
-        self.rotations = rotations  # Dictionary of rotations
-        self.spawn_rotation = rotations["spawn"]  # Default spawn rotation
+        self.rotations = rotations
+        self.spawn_rotation = rotations["spawn"]
         self.width = self.spawn_rotation.shape[1]  # Width of the spawn state
         self.height = self.spawn_rotation.shape[0]  # Height of the spawn state
 class LocalTetris:
@@ -146,8 +149,9 @@ class LocalTetris:
         self.held_piece = None
         self.queue = [self.get_next_piece() for _ in range(5)]
         self.game_over = False
-        self.can_hold = True  # Boolean to track hold eligibility
+        self.can_hold = True
         self.back_to_back = None
+        self.score = 0
     def define_tetris_pieces(self):
         pieces = {
             "I": TetrisPiece("I", {
@@ -208,81 +212,73 @@ class LocalTetris:
     def reset(self):
         self.grid = np.zeros((20, 10), dtype=int)
         self.bag = self.generate_bag()
-        self.current_piece = self.get_next_piece()  # Assign a `TetrisPiece` object
-        self.current_rotation_key = "spawn"  # Reset rotation to spawn
-        self.held_piece = None  # No piece held at the start
+        self.current_piece = self.get_next_piece()
+        self.current_rotation_key = "spawn" 
+        self.held_piece = None 
         self.queue = [self.get_next_piece() for _ in range(5)]
         self.game_over = False
-        self.can_hold = True  # Reset hold eligibility
+        self.can_hold = True
         self.back_to_back = None
-        return self.get_state()  # Return the initial state
+        self.score = 0
+        return self.get_state()
 
     def step(self, action):
         # Apply action
         if action["type"] == "hold":
-            if self.can_hold:  # Only allow holding if permitted
-                self.can_hold = False  # Disable further holding until piece is placed
-                if self.held_piece:  # Swap current and held pieces
+            if self.can_hold:
+                self.can_hold = False
+                if self.held_piece:
                     self.current_piece, self.held_piece = self.held_piece, self.current_piece
                     self.current_rotation_key = "spawn"
-                else:  # Place current piece into hold
+                else:
                     self.held_piece = self.current_piece
                     self.current_piece = self.queue.pop(0)
                     self.current_rotation_key = "spawn"
                     self.queue.append(self.get_next_piece())
                 reward = self.reward()
             else:
-                return self.get_state(), -1, False  # Penalize illegal hold
+                return self.get_state(), -1, False
         else:
             rotation_key = action["rotation"]
             column = action["column"]
             valid = self.place_piece(rotation_key, column)
             if not valid:
                 self.game_over = True
-                return self.get_state(), -10, True  # Penalty for invalid placement
+                return self.get_state(), -10, True
             reward = self.reward()
-            self.current_piece = self.queue.pop(0)  # Transition to the next piece
-            self.current_rotation_key = "spawn"  # Reset rotation
-            self.queue.append(self.get_next_piece())  # Replenish queue
-            self.can_hold = True  # Allow holding again after placing a piece
+            self.current_piece = self.queue.pop(0) 
+            self.current_rotation_key = "spawn"
+            self.queue.append(self.get_next_piece())
+            self.can_hold = True
         
         self.game_over = self.is_terminal_state()
         return self.get_state(), reward, self.game_over
+        
 
     def place_piece(self, rotation, column):
         piece_shape = self.current_piece.rotations[rotation]
         piece_height, piece_width = piece_shape.shape
         
-        # Ensure the piece doesn't go out of bounds
         if column + piece_width > 10:
             print(f"Invalid column: {column}")
             return False
-        
-        # Start from the top and drop the piece until it lands
         for row in range(20 - piece_height + 1):
-            # Check for collision at the next row
             if self.is_collision(row + 1, column, piece_shape) or row + 1 + piece_height > 20:
-                # Place the piece at the current row (the last valid position)
                 self.grid[row:row+piece_height, column:column+piece_width] += piece_shape
                 return True
-        
-        # If no valid position is found (unlikely), return False
         return False
-
-
 
     def is_collision(self, row, column, piece_shape):
         piece_height, piece_width = piece_shape.shape
         
-        # Ensure we're within bounds
         if row + piece_height > 20 or column + piece_width > 10:
             return True
-        
-        # Check for overlap with existing blocks
         grid_section = self.grid[row:row+piece_height, column:column+piece_width]
         return np.any(grid_section + piece_shape > 1)
 
     def reward(self):
+        if(self.is_terminal_state()):
+            return -999999
         lines_cleared = 0
         for row in range(20):
             if all(self.grid[row]):
@@ -295,15 +291,96 @@ class LocalTetris:
             reward += 1
         elif lines_cleared > 0:
             self.back_to_back = lines_cleared
-        reward = reward**2
+        self.score += reward
+        reward = (reward*2)**2
         holes = self.calculate_holes()
-        reward -= holes
+        if holes == 0:
+            reward+=5
+        else:
+            reward -= holes**2
         penalty_for_height = 0
-        for row in range(12, 20):
-            penalty_for_height += (sum(self.grid[row]) * row)
-        reward -= penalty_for_height
+        for row in range(0, 8):
+            penalty_for_height += (sum(self.grid[row]) * (20-row))  
+        if penalty_for_height == 0:
+            reward+=5
+        else:
+            reward -= penalty_for_height
         return reward
     
+    
+    def is_terminal_state(self):
+        return any(self.grid[0])
+    
+    def get_state(self):
+        return {
+            "grid": np.array(self.grid.copy(), dtype=np.float32).reshape(1, 20, 10),
+            "current_piece": np.array(self.one_hot_encode(self.current_piece), dtype=np.float32).reshape(1, 7),
+            "held_piece": np.array(self.one_hot_encode(self.held_piece), dtype=np.float32).reshape(1, 7),
+            "queue": np.array(
+                [self.one_hot_encode(piece) for piece in self.queue], dtype=np.float32
+            ).reshape(1, 5, 7),
+            "can_hold": np.array([[1 if self.can_hold else 0]], dtype=np.float32),
+        }
+
+    def get_legal_actions(self):
+        if self.game_over:
+            return []
+        legal_actions = []
+        action_index = 0
+        for rotation_key in self.current_piece.rotations.keys():
+            piece_width = self.current_piece.rotations[rotation_key].shape[1]
+            for column in range(10):
+                if column+piece_width > 10:
+                    action_index += 1
+                    continue
+                elif not self.is_collision(0, column, self.current_piece.rotations[rotation_key]):
+                    legal_actions.append({
+                        "type": "place", 
+                        "rotation": rotation_key, 
+                        "column": column,
+                        "index": action_index
+                    })
+                    action_index += 1
+        if self.can_hold:
+            legal_actions.append({"type": "hold", "index": action_index})
+            action_index += 1
+        return legal_actions
+
+    def get_next_states(self):
+        next_states = {}
+        if(self.is_terminal_state()):
+            return next_states
+        legal_actions = self.get_legal_actions()
+        grid_backup = self.grid.copy()
+        current_piece_backup = self.current_piece
+        current_rotation_key_backup = self.current_rotation_key
+        held_piece_backup = self.held_piece
+        queue_backup = self.queue.copy()
+        can_hold_backup = self.can_hold
+        game_over_backup = self.game_over
+        score_backup = self.score
+        for action in legal_actions:
+            next_state, reward, _ = self.step(action)
+            action_key = tuple(action.items())
+            next_states[action_key] = (next_state, reward)
+
+            self.grid = grid_backup
+            self.current_piece = current_piece_backup
+            self.current_rotation_key = current_rotation_key_backup
+            self.held_piece = held_piece_backup
+            self.queue = queue_backup
+            self.can_hold = can_hold_backup
+            self.game_over = game_over_backup
+            self.score = score_backup
+        return next_states
+
+    def one_hot_encode(self, piece: TetrisPiece, all_pieces=["I", "J", "L", "O", "S", "T", "Z"]):
+        encoding = np.zeros(len(all_pieces), dtype=int)
+        if piece is not None:
+            index = all_pieces.index(piece.name)
+            encoding[index] = 1
+        return encoding
+
     def calculate_holes(self):
         holes = 0
         for col in range(10):  # Iterate through each column
@@ -315,51 +392,9 @@ class LocalTetris:
                 elif block_found and cell == 0:
                     holes += 1  # Count empty cells below a block
         return holes
-    
-    def is_terminal_state(self):
-        return any(self.grid[0])  # Game over if top row is filled
-    
-    def one_hot_encode(self, piece, all_pieces=["I", "J", "L", "O", "S", "T", "Z"]):
-        encoding = np.zeros(len(all_pieces), dtype=int)
-        if piece is not None:
-            index = all_pieces.index(piece.name)
-            encoding[index] = 1
-        return encoding
-
-    def get_state(self):
-        return {
-            "grid": np.array(self.grid.copy(), dtype=np.float32).reshape(1, 20, 10),
-            "current_piece": np.array(self.one_hot_encode(self.current_piece), dtype=np.float32).reshape(1, 7),
-            "held_piece": np.array(self.one_hot_encode(self.held_piece), dtype=np.float32).reshape(1, 7),
-            "queue": np.array(
-                [self.one_hot_encode(piece) for piece in self.queue], dtype=np.float32
-            ).reshape(1, 5, 7),
-            "can_hold": np.array([[1 if self.can_hold else 0]], dtype=np.float32),  # Convert to float32
-        }
-
-
-
-
-    def get_legal_actions(self):
-        legal_actions = []
-        if self.game_over:  # If the game is over, no legal actions are available
-            return []
-        action_index = 0  # Unique index for each action
-        # Iterate over all possible rotations for the current piece
-        for rotation_key in self.current_piece.rotations.keys():
-            # Iterate over valid columns for this rotation
-            for column in range(10 - self.current_piece.rotations[rotation_key].shape[1] + 1):
-                if not self.is_collision(0, column, self.current_piece.rotations[rotation_key]):
-                    legal_actions.append({
-                        "type": "place", 
-                        "rotation": rotation_key, 
-                        "column": column,
-                        "index": action_index
-                    })
-                    action_index += 1
-        # Add the hold action if holding is allowed
-        if self.can_hold:
-            legal_actions.append({"type": "hold", "index": action_index})
-            action_index += 1
-        return legal_actions
-
+def test():
+    tetr = LocalTetris();
+    print(f"Grid: {tetr.grid}")
+    print(f"Current Piece: {tetr.current_piece.name}")
+    print(f"Legal Actions: {tetr.get_legal_actions()}")
+#test()
