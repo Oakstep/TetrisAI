@@ -39,7 +39,7 @@ class AIPart:
         dense2 = Dense(128, activation="relu")(dense1)
         dense3 = Dense(128, activation="relu")(dense2)
 
-        output = Dense(41, activation="linear", name="q_values")(dense3)  # Adjusted for larger action space
+        output = Dense(41, activation="linear", name="q_values")(dense3) 
         model = Model(
             inputs=[grid_input, current_piece_input, held_piece_input, next_pieces_input, can_hold_input],
             outputs=output,
@@ -51,7 +51,7 @@ class AIPart:
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, simulator_state, legal_actions):
-        if not legal_actions:  # If no legal actions are available, return None or a placeholder
+        if not legal_actions: 
             return None
         
         inputs = {
@@ -63,7 +63,7 @@ class AIPart:
         }
 
         if np.random.rand() <= self.epsilon:
-            return random.choice(legal_actions)  # Exploration
+            return random.choice(legal_actions) 
         else:
             print("Inputs to predict during gameplay:")
             for key, value in simulator_state.items():
@@ -75,12 +75,11 @@ class AIPart:
 
     def replay(self, batch_size):
         if len(self.memory) < batch_size:
-            return  # Do nothing if there isn't enough data for a batch
+            return
         
-        minibatch = random.sample(self.memory, batch_size)  # Sample experiences from memory
+        minibatch = random.sample(self.memory, batch_size)
         
         for state, action, reward, next_state, done in minibatch:
-            # Prepare inputs for prediction from state and next_state
             state_inputs = {
                 "grid": state["grid"],
                 "current_piece": state["current_piece"],
@@ -101,37 +100,30 @@ class AIPart:
             valid_indices = [action["index"] for action in next_legal_actions]
             for i in range(len(next_q_values)):
                 if i not in valid_indices:
-                    next_q_values[i] = -float('inf')  # Mask invalid actions
-            # Target computation based on reward and next state
+                    next_q_values[i] = -float('inf')  
             target = reward
             if not done:
-                target += self.gamma * np.max(next_q_values)  # Add discounted max Q-value of next state
+                target += self.gamma * np.max(next_q_values)  
 
-            # Create updated Q-values for the current state
             target_q_values = current_q_values.copy()
-            if action["index"] < len(target_q_values):  # Update only valid action index
+            if action["index"] < len(target_q_values):  
                 target_q_values[action["index"]] = target
 
-            # Mask invalid actions in the current state Q-values
             legal_actions = self.get_legal_actions()
             valid_indices = [action["index"] for action in legal_actions]
             for i in range(len(target_q_values)):
                 if i not in valid_indices:
-                    target_q_values[i] = -float('inf')  # Mask invalid actions
+                    target_q_values[i] = -float('inf') 
 
-            # Normalize valid Q-values for proportional weighting
             valid_q_values = np.array([target_q_values[i] for i in valid_indices])
-            if len(valid_q_values) > 0:  # Avoid divide-by-zero
+            if len(valid_q_values) > 0:
                 normalized_q_values = valid_q_values / np.sum(np.abs(valid_q_values))
 
-                # Map normalized Q-values back into the target Q-values array
                 for i, valid_index in enumerate(valid_indices):
                     target_q_values[valid_index] = normalized_q_values[i]
 
-            # Train the model on this adjusted target
             self.model.fit(state_inputs, np.expand_dims(target_q_values, axis=0), epochs=1, verbose=0)
 
-        # Decay epsilon for better exploration-exploitation balance
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
@@ -143,7 +135,7 @@ class AIPart:
 
             while not done:
                 legal_actions = simulator.get_legal_actions()
-                if not legal_actions:  # If there are no legal actions, end the episode
+                if not legal_actions: 
                     done = True
                     break
 
