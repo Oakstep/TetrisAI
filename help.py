@@ -4,6 +4,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 import time
+from ai import AIPart
 
 class TetrisVisualizer:
     def __init__(self, tetris_env):
@@ -45,26 +46,57 @@ class TetrisVisualizer:
 class RandomPlayer:
     def __init__(self, tetris_env: LocalTetris, visualizer: TetrisVisualizer):
         self.tetris_env = tetris_env
+        self.visualizer = visualizer
 
     def play(self):
         while not self.tetris_env.game_over:
             legal_actions = self.tetris_env.get_legal_actions()
-            action = random.choice(legal_actions)  # Pick a random action
+            action = random.choice(legal_actions)
             state, reward, game_over = self.tetris_env.step(action)
             print(f"Action: {action}, Reward: {reward}")
-            visualizer.visualize()
-            time.sleep(0.5)  # Slow down for visualization
+            self.visualizer.visualize()
+            time.sleep(0.5)
             if game_over:
                 print("Game Over!")
-                print(self.tetris_env.grid)
                 break
 
+def run_random():
+    local_tetris = LocalTetris()
+    local_tetris.reset()
+
+    visualizer = TetrisVisualizer(local_tetris)
+    #visualizer.visualize()
+    player = RandomPlayer(local_tetris, visualizer)
+
+    player.play()
+
+def test_agent(agent:AIPart, simulator:LocalTetris, visualizer, episodes=1):
+    for episode in range(episodes):
+        state = simulator.reset() 
+        done = False
+
+        print(f"Starting Episode {episode + 1}")
+
+        while not done:
+            legal_actions = simulator.get_legal_actions()
+            if not legal_actions:
+                print("No legal actions available. Ending episode.")
+                break
+
+            action = agent.act(state, legal_actions)
+            if action is None:
+                print("No action selected. Ending episode.")
+                break
+
+            next_state, reward, done = simulator.step(action)
+            print(reward)
+            visualizer.visualize()
+            state = next_state
+
+        print(f"Episode {episode + 1} finished.")
 local_tetris = LocalTetris()
-local_tetris.reset()
-
+agent = AIPart(load=True)
 visualizer = TetrisVisualizer(local_tetris)
-visualizer.visualize()
-player = RandomPlayer(local_tetris, visualizer)
 
-# Play and visualize
-player.play()
+#run_random()
+test_agent(agent, local_tetris, visualizer, episodes=3) 
