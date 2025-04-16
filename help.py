@@ -1,10 +1,10 @@
-from tetris import LocalTetris, Tetris
+from tetris import LocalTetris
+from ai2 import TetrisAgent
 import random
 import numpy as np
 import random
 import matplotlib.pyplot as plt
 import time
-from ai import AIPart
 
 class TetrisVisualizer:
     def __init__(self, tetris_env):
@@ -34,11 +34,11 @@ class TetrisVisualizer:
         ax.set_title(title)
 
     def visualize(self):
-        self.draw_grid(self.tetris_env.grid, self.axs[1], title="Tetris Grid (Game State)")
-        self.draw_piece(self.tetris_env.held_piece, self.axs[0], title="Held Piece")
-        self.draw_piece(self.tetris_env.queue[0], self.axs[2], title="Next Piece in Queue")
+        self.draw_grid(self.tetris_env.grid, self.axs[0], title="Tetris Grid (Game State)")
+        self.draw_piece(self.tetris_env.next_piece, self.axs[2], title="Next Piece")
+        self.draw_piece(self.tetris_env.current_piece, self.axs[1], title="Current Piece")
         
-        plt.pause(0.5)  # Animation delay
+        plt.pause(0.01)  # Animation delay
 
 
 class RandomPlayer:
@@ -48,12 +48,14 @@ class RandomPlayer:
 
     def play(self):
         while not self.tetris_env.game_over:
-            legal_actions = self.tetris_env.get_legal_actions()
-            action = random.choice(legal_actions)
-            state, reward, game_over = self.tetris_env.step(action)
+            legal_actions = self.tetris_env.get_next_states().keys()
+            print(self.tetris_env.current_piece.name)
+            print(list(legal_actions))
+            action = random.choice(list(legal_actions))
+            state, reward, game_over = self.tetris_env.step(action[0], action[1])
             print(f"Action: {action}, Reward: {reward}")
             self.visualizer.visualize()
-            time.sleep(0.5)
+            time.sleep(10)
             if game_over:
                 print("Game Over!")
                 break
@@ -68,7 +70,7 @@ def run_random():
 
     player.play()
 
-def test_agent(agent:AIPart, simulator:LocalTetris, visualizer:TetrisVisualizer, episodes=1):
+def test_agent(agent, simulator:LocalTetris, visualizer:TetrisVisualizer, episodes=1):
     for episode in range(episodes):
         state = simulator.reset() 
         done = False
@@ -93,9 +95,28 @@ def test_agent(agent:AIPart, simulator:LocalTetris, visualizer:TetrisVisualizer,
             state = next_state
             time.sleep(1)
         print(f"Episode {episode + 1} finished.")
-local_tetris = LocalTetris()
-agent = AIPart(load=True)
-visualizer = TetrisVisualizer(local_tetris)
+def test_agent_2():
+    env = LocalTetris()
+    env.reset()
+    agent = TetrisAgent(env.get_state_size(), modelFile='tetris_model.keras', epsilon=0)
+    visualizer = TetrisVisualizer(env)
+    done = False
+
+    while not done:
+        visualizer.visualize()
+        print(env.current_piece.name)
+        next_states = {tuple(v): k for k, v in env.get_next_states().items()}
+        best_state = agent.best_state(next_states.keys())
+        best_action = next_states[best_state]
+        print(best_action)
+        _, reward, done = env.step(best_action)
+        visualizer.visualize()
+        print(reward)
+        time.sleep(0.01)
+#local_tetris = LocalTetris()
+#agent = AIPart(load=True)
+#visualizer = TetrisVisualizer(local_tetris)
 
 #run_random()
-test_agent(agent, local_tetris, visualizer, episodes=3) 
+#test_agent(agent, local_tetris, visualizer, episodes=3) 
+#test_agent_2()

@@ -1,137 +1,7 @@
-from ast import List
-from math import inf
-from threading import local
-import numpy as np
-import cv2
 import random
+import copy
+import numpy as np
 
-class Tetris:
-    width = 10
-    height = 20
-    board_array = np.zeros((20, 10))
-    mask = None
-    grey = [57,57,57]
-    x=y=w=h = None
-    pieces = {"i": [15,155,215], #light blue
-               "o": [227, 159, 2], #yellow
-               "t": [175,41,138], #purple
-               "j": [227,91,2], #orange
-               "l": [33,65,198], #blue
-               "s": [89,177,1], #green
-               "z": [215,15,55]} #red
-    def __init__(self):
-        for key in self.pieces:
-            bgr_color = self.pieces[key]
-            bgr_color = np.flip(np.array(bgr_color, dtype='uint8'))
-            self.pieces[key] = bgr_color
-    def queue(self, img):
-        arr = []
-        for key in self.pieces:
-            bgr_color = self.pieces[key]
-            mask = cv2.inRange(img, bgr_color, bgr_color)
-            contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(img, contours, -1, (0, 255, 0), 2)
-            for cnt in contours:
-                (x, y, w, h) = cv2.boundingRect(cnt)
-                arr.append((key, y))
-        arr = sorted(arr, key=lambda x: x[1])
-        arr = [item[0] for item in arr]
-        return img, arr
-    def held(self, img):
-        arr = []
-        for key in self.pieces:
-            bgr_color = self.pieces[key]
-            mask = cv2.inRange(img, bgr_color, bgr_color)
-            contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(img, contours, -1, (0, 255, 0), 2)
-            for cnt in contours:
-                (x, y, w, h) = cv2.boundingRect(cnt)
-                arr.append((key, y))
-        arr = sorted(arr, key=lambda x: x[1])
-        arr = [item[0] for item in arr]
-        return img, arr[0] if arr else None
-    def locate_board(self, img):
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
-        kernel = np.ones((3, 3), np.uint8)
-        edges = cv2.dilate(edges, kernel, iterations=1)
-        edges = cv2.erode(edges, kernel, iterations=1)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        max_area = 0
-        max_rectangle = None
-
-        for contour in contours:
-            perimeter = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
-            if len(approx) == 4:
-                area = cv2.contourArea(approx)
-                if area > max_area:
-                    max_area = area
-                    max_rectangle = approx
-        if max_rectangle is not None:
-            x, y, w, h = cv2.boundingRect(max_rectangle)
-            self.x, self.y, self.w, self.h = x,y,w,h
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        #cv2.imwrite("res_board.png", img)
-        return img
-    def board(self, img):
-        flag = True
-        #if self.mask is None:
-        for key in self.pieces:
-            bgr_color = self.pieces[key]
-            mask = cv2.inRange(img, bgr_color, bgr_color)
-            if flag is True:
-                self.mask = mask
-                flag = False
-            else:
-                self.mask = cv2.bitwise_or(self.mask, mask)
-        result = cv2.bitwise_and(img, img, mask=self.mask)
-        result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
-        contours, _ = cv2.findContours(result, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        arr = []
-        for cnt in contours:
-                (x, y, w, h) = cv2.boundingRect(cnt)
-                arr.append((cnt, y))
-        arr = sorted(arr, key=lambda x: x[1])
-        arr = [item[0] for item in arr]
-        cv2.drawContours(img, contours, -1, (0, 255, 0), 2)
-        height, width, channels = img.shape
-        cell_width = width/self.width
-        cell_height = height/self.height
-        for row in range(self.height):
-            for col in range(self.width):
-                x1 = int(col * cell_width)
-                y1 = int(row * cell_height)
-                x2 = int((col + 1) * cell_width)
-                y2 = int((row + 1) * cell_height)
-                cell = result[y1:y2, x1:x2]
-                if np.sum(cell > 0) > (cell_width * cell_height * 0.5):
-                    self.board_array[row, col] = 1
-        return img, self.board_array
-    def current(self, img): 
-        arr = []
-        for key in self.pieces:
-            bgr_color = self.pieces[key]
-            mask = cv2.inRange(img, bgr_color, bgr_color)
-            contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            #cv2.drawContours(img, contours, -1, (0, 255, 0), 2)
-            for cnt in contours:
-                (x, y, w, h) = cv2.boundingRect(cnt)
-                arr.append((key, y))
-        arr = sorted(arr, key=lambda x: x[1])
-        arr = [item[0] for item in arr]
-        return img, arr[0] if arr else None
-    def processSS(self, img):
-        if self.x is None:
-            self.locate_board(img)
-        cv2.rectangle(img, (self.x, self.y), (self.x + self.w, self.y + self.h), (0, 255, 0), 2)
-        img[self.y:self.y+self.h, self.x:self.x+self.w], board_array = self.board(img[self.y:self.y+self.h, self.x:self.x+self.w])
-        img[self.y:self.y+self.h, self.x+self.w:self.x+self.w+int(0.55*self.w)], queue = self.queue(img[self.y:self.y+self.h, self.x+self.w:self.x+self.w+int(0.55*self.w)])
-        img[self.y:self.y+self.h, self.x-self.w:self.x], held = self.held(img[self.y:self.y+self.h, self.x-self.w:self.x])
-        _, current = self.current(img[self.y:self.y+self.h, self.x:self.x+self.w])
-        #cv2.imwrite("res_board.png", img)
-        return img, board_array, queue, held, current
 class TetrisPiece:
     def __init__(self, name, rotations):
         self.name = name
@@ -145,13 +15,14 @@ class LocalTetris:
         self.pieces = self.define_tetris_pieces()
         self.bag = self.generate_bag()
         self.current_piece = self.get_next_piece()
-        self.current_rotation_key = "spawn"         
-        self.held_piece = None
-        self.queue = [self.get_next_piece() for _ in range(5)]
+        self.current_rotation_key = "spawn"
+        self.next_piece = self.get_next_piece()
+        #self.held_piece = None
         self.game_over = False
-        self.can_hold = True
-        self.back_to_back = None
+        #self.can_hold = True
         self.score = 0
+        self.cleared_lines = 0
+    
     def define_tetris_pieces(self):
         pieces = {
             "I": TetrisPiece("I", {
@@ -214,46 +85,30 @@ class LocalTetris:
         self.bag = self.generate_bag()
         self.current_piece = self.get_next_piece()
         self.current_rotation_key = "spawn" 
-        self.held_piece = None 
-        self.queue = [self.get_next_piece() for _ in range(5)]
+        self.next_piece = self.get_next_piece()
+        #self.held_piece = None 
         self.game_over = False
-        self.can_hold = True
-        self.back_to_back = None
+        #self.can_hold = True
         self.score = 0
+        self.cleared_lines = 0
         return self.get_state()
 
-    def step(self, action):
-        # Apply action
-        if action["type"] == "hold":
-            if self.can_hold:
-                self.can_hold = False
-                if self.held_piece:
-                    self.current_piece, self.held_piece = self.held_piece, self.current_piece
-                    self.current_rotation_key = "spawn"
-                else:
-                    self.held_piece = self.current_piece
-                    self.current_piece = self.queue.pop(0)
-                    self.current_rotation_key = "spawn"
-                    self.queue.append(self.get_next_piece())
-                reward = self.reward()
-            else:
-                return self.get_state(), -1, False
-        else:
-            rotation_key = action["rotation"]
-            column = action["column"]
-            valid = self.place_piece(rotation_key, column)
-            if not valid:
-                self.game_over = True
-                return self.get_state(), -10, True
-            reward = self.reward()
-            self.current_piece = self.queue.pop(0) 
-            self.current_rotation_key = "spawn"
-            self.queue.append(self.get_next_piece())
-            self.can_hold = True
-        
+
+    def step(self, x, rotation):
+        rotation_map = {
+            0: "spawn",
+            1: "clockwise",
+            2: "flip",
+            3: "counterclockwise"
+        }
+        self.place_piece(rotation_map[rotation], x)
         self.game_over = self.is_terminal_state()
-        return self.get_state(), reward, self.game_over
-        
+        reward = self.reward() 
+        reward = reward - 5 if self.game_over else 0
+        self.current_piece = self.next_piece
+        self.current_rotation_key = "spawn"
+        self.next_piece = self.get_next_piece()
+        return self.get_state(), reward, self.game_over 
 
     def place_piece(self, rotation, column):
         piece_shape = self.current_piece.rotations[rotation]
@@ -276,110 +131,74 @@ class LocalTetris:
         grid_section = self.grid[row:row+piece_height, column:column+piece_width]
         return np.any(grid_section + piece_shape > 1)
 
-    def reward(self):
-        if(self.is_terminal_state()):
-            return -999999
-        lines_cleared = 0
-        for row in range(20):
-            if all(self.grid[row]):
-                lines_cleared += 1
-                self.grid[1:row+1] = self.grid[:row]
-                self.grid[0] = np.zeros(10)
-        garbage_rewards = {0: 0, 1: 0, 2: 1, 3: 2, 4: 4}  # Points based on lines cleared
-        reward = garbage_rewards[lines_cleared]
-        if lines_cleared > 0 and lines_cleared == self.back_to_back:
-            reward += 1
-        elif lines_cleared > 0:
-            self.back_to_back = lines_cleared
-        self.score += reward
-        reward = (reward*2)**2
-        holes = self.calculate_holes()
-        if holes == 0:
-            reward+=5
-        else:
-            reward -= holes**2
-        penalty_for_height = 0
-        for row in range(0, 8):
-            penalty_for_height += (sum(self.grid[row]) * (20-row))  
-        if penalty_for_height == 0:
-            reward+=5
-        else:
-            reward -= penalty_for_height
-        return reward
-    
-    
     def is_terminal_state(self):
         return any(self.grid[0])
     
     def get_state(self):
-        return {
-            "grid": np.array(self.grid.copy(), dtype=np.float32).reshape(1, 20, 10),
-            "current_piece": np.array(self.one_hot_encode(self.current_piece), dtype=np.float32).reshape(1, 7),
-            "held_piece": np.array(self.one_hot_encode(self.held_piece), dtype=np.float32).reshape(1, 7),
-            "queue": np.array(
-                [self.one_hot_encode(piece) for piece in self.queue], dtype=np.float32
-            ).reshape(1, 5, 7),
-            "can_hold": np.array([[1 if self.can_hold else 0]], dtype=np.float32),
-        }
+        current_piece = self.one_hot_encode(self.current_piece)
+        next_piece = self.one_hot_encode(self.next_piece)
+        #held_piece = self.one_hot_encode(self.held_piece)
+        #can_hold = 1 if self.can_hold else 0
+        holes = self.calculate_holes()
+        bumpiness = self.get_bumpiness()
+        height = self.get_total_height()
+        return [self.cleared_lines, holes, bumpiness, height]
 
     def get_legal_actions(self):
+        rotation_map = {
+            "spawn": 0,
+            "clockwise": 1,
+            "flip": 2,
+            "counterclockwise": 3
+        }
         if self.game_over:
             return []
         legal_actions = []
-        action_index = 0
         for rotation_key in self.current_piece.rotations.keys():
             piece_width = self.current_piece.rotations[rotation_key].shape[1]
             for column in range(10):
                 if column+piece_width > 10:
-                    action_index += 1
                     continue
                 elif not self.is_collision(0, column, self.current_piece.rotations[rotation_key]):
-                    legal_actions.append({
-                        "type": "place", 
-                        "rotation": rotation_key, 
-                        "column": column,
-                        "index": action_index
-                    })
-                    action_index += 1
-        if self.can_hold:
-            legal_actions.append({"type": "hold", "index": action_index})
-            action_index += 1
+                    legal_actions.append((column, rotation_map[rotation_key]))
         return legal_actions
 
     def get_next_states(self):
         next_states = {}
-        if(self.is_terminal_state()):
-            return next_states
         legal_actions = self.get_legal_actions()
-        grid_backup = self.grid.copy()
-        current_piece_backup = self.current_piece
-        current_rotation_key_backup = self.current_rotation_key
-        held_piece_backup = self.held_piece
-        queue_backup = self.queue.copy()
-        can_hold_backup = self.can_hold
-        game_over_backup = self.game_over
-        score_backup = self.score
+        backup = self.snapshot_state()
         for action in legal_actions:
-            next_state, reward, _ = self.step(action)
-            action_key = tuple(action.items())
-            next_states[action_key] = (next_state, reward)
-
-            self.grid = grid_backup
-            self.current_piece = current_piece_backup
-            self.current_rotation_key = current_rotation_key_backup
-            self.held_piece = held_piece_backup
-            self.queue = queue_backup
-            self.can_hold = can_hold_backup
-            self.game_over = game_over_backup
-            self.score = score_backup
+            _, _, _ = self.step(action[0], action[1])
+            next_states[action] = self.get_state() 
+            self.load_state(backup)
         return next_states
+    
+
+    def snapshot_state(self):
+        return copy.deepcopy({
+            "grid": self.grid,
+            "current_piece": self.current_piece,
+            "current_rotation_key": self.current_rotation_key,
+            "next_piece": self.next_piece,
+            "game_over": self.game_over,
+            "score": self.score,
+            "bag": self.bag,
+            "lines_cleared": self.cleared_lines
+        })
+    def load_state(self, state):
+        self.grid = copy.deepcopy(state["grid"])
+        self.current_piece = copy.deepcopy(state["current_piece"])
+        self.current_rotation_key = copy.deepcopy(state["current_rotation_key"])
+        self.next_piece = copy.deepcopy(state["next_piece"])
+        self.game_over = copy.deepcopy(state["game_over"])
+        self.score = copy.deepcopy(state["score"])
+        self.bag = copy.deepcopy(state["bag"])
+        self.cleared_lines = copy.deepcopy(state["lines_cleared"])
 
     def one_hot_encode(self, piece: TetrisPiece, all_pieces=["I", "J", "L", "O", "S", "T", "Z"]):
-        encoding = np.zeros(len(all_pieces), dtype=int)
         if piece is not None:
-            index = all_pieces.index(piece.name)
-            encoding[index] = 1
-        return encoding
+            return all_pieces.index(piece.name)
+        return -1  # or len(all_pieces) if you want to reserve an index for "None"
 
     def calculate_holes(self):
         holes = 0
@@ -392,9 +211,47 @@ class LocalTetris:
                 elif block_found and cell == 0:
                     holes += 1  # Count empty cells below a block
         return holes
-def test():
-    tetr = LocalTetris();
-    print(f"Grid: {tetr.grid}")
-    print(f"Current Piece: {tetr.current_piece.name}")
-    print(f"Legal Actions: {tetr.get_legal_actions()}")
-#test()
+    
+    def get_state_size(self):
+        return 4
+    
+    def get_game_score(self):
+        return self.score
+    
+    def reward(self):
+        lines_cleared = 0
+        reward = 0
+        for row in range(20):
+            if all(self.grid[row]):
+                lines_cleared += 1
+                self.grid[1:row+1] = self.grid[:row]
+                self.grid[0] = np.zeros(10)
+        if lines_cleared == 1:
+            reward += 100
+        elif lines_cleared == 2:
+            reward += 200
+        elif lines_cleared == 3:
+            reward += 400
+        elif lines_cleared == 4:
+            reward += 1200  # Tetris
+        self.score += reward
+        self.cleared_lines = lines_cleared
+        return reward
+    def get_column_heights(self):
+        heights = []
+        for col in range(self.grid.shape[1]):
+            column = self.grid[:, col]
+            filled_indices = np.where(column > 0)[0]
+            if len(filled_indices) == 0:
+                heights.append(0)
+            else:
+                # Height = total rows - first filled row index
+                height = self.grid.shape[0] - filled_indices[0]
+                heights.append(height)
+        return heights
+    def get_bumpiness(self):
+        heights = self.get_column_heights()
+        return sum(abs(heights[i] - heights[i + 1]) for i in range(len(heights) - 1))
+    def get_total_height(self):
+        return sum(self.get_column_heights())
+

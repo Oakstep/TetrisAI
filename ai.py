@@ -1,16 +1,14 @@
-from pickle import NONE
-from tkinter import NO
 import numpy as np
 import tensorflow as tf
 from keras._tf_keras import keras
 from keras._tf_keras.keras import Sequential, Input, Model
-from keras._tf_keras.keras.layers import Dense, Flatten, Concatenate
+from keras._tf_keras.keras.layers import Dense, Flatten, Concatenate, InputLayer
 from keras._tf_keras.keras.models import load_model
+from keras._tf_keras.keras.optimizers import Adam
 from collections import deque
 from tetris import Tetris, LocalTetris
 from controller import SimActions
 import random
-from tqdm import tqdm
 
 class AIPart:
     def __init__(self, load=True):
@@ -53,6 +51,26 @@ class AIPart:
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
+    def pick_best_state(self, states): 
+        max = None
+        best_state = None
+        if np.random.rand() <= self.epsilon:
+            return random.choice(list(states))
+        else:
+            for state in states:
+                inputs = {
+                    "grid": state["grid"],
+                    "current_piece": state["current_piece"],
+                    "held_piece": state["held_piece"],
+                    "queue": state["queue"],
+                    "can_hold": state["can_hold"]
+                }
+                value = self.model.predict(state, verbose=0)[0]
+                if not max or max < value:
+                    max = value
+                    best_state = state
+            return best_state
+
     def act(self, simulator_state, legal_actions):
         if not legal_actions: 
             return None
@@ -72,75 +90,40 @@ class AIPart:
             best_action = max(legal_actions, key=lambda action: q_values[action["index"]])
             return best_action
         
-    def train(self, simulator:LocalTetris, episodes):
-        scores = []
+    def train(self, simulator:LocalTetris, episodes=3000):
         best_score = -float("inf")
-        for episode in tqdm(range(episodes)):
-            simulator.reset()
-            state = simulator.get_state()
+        for episode in range(episodes):
+            state = simulator.reset()
             done = False
             steps = 0
-            while not done and (steps < self.max_steps):
-                next_states = simulator.get_next_states()
-                best_action_key = max(next_states, key=lambda k: next_states[k][1])
-                best_action = dict(best_action_key)
-                best_state, reward, done = simulator.step(best_action)
-                self.remember(state, best_action, reward, best_state, done)
-                state = best_state
-                steps+=1
-            scores.append(simulator.score)
-            if(len(self.memory) >= self.replay_start_size):
-                self.replay()
-            score = simulator.score
+
+            while not done and steps < self.max_steps:
+                legal_actions = simulator.get_legal_actions()
+                action = self.act(state, legal_actions)
+                next_state, reward, done = simulator.step(action)
+                self.remember(state, action, reward, next_state, done)
+                state = next_state
+                steps += 1
+
+            if len(self.memory) > self.replay_start_size:
+                self.replay(batch_size=128)
+            score = simulator.get_game_score()
             if score > best_score:
-                print(f"Saving a new best model (score={score}, episode={episode})")
+                print(f"Saving best model (Score: {score}, Episode: {episode})")
+                self.model.save("best_model.keras")
                 best_score = score
-                self.model.save("tetris_ai_model.keras")
-            print(f"Episode {episode + 1}/{episodes} completed. Epsilon: {self.epsilon:.4f}")
-    def replay(self, batch_size=256):
+
+            print(f"Episode: {episode}, Score: {score}, Best Score: {best_score}")
+
+    def replay(self, batch_size=128):
         if len(self.memory) < batch_size:
-            return  # Do nothing if there isn't enough data for a batch
+            return
+
+        batch = random.sample(self.memory, batch_size)
         
-        minibatch = random.sample(self.memory, batch_size)  # Sample experiences from memory
-        
-        for state, action, reward, next_state, done in minibatch:
-            # Prepare inputs for prediction from state and next_state
-            state_inputs = {
-                "grid": state["grid"],
-                "current_piece": state["current_piece"],
-                "held_piece": state["held_piece"],
-                "queue": state["queue"],
-                "can_hold": state["can_hold"]
-            }
-            next_state_inputs = {
-                "grid": next_state["grid"],
-                "current_piece": next_state["current_piece"],
-                "held_piece": next_state["held_piece"],
-                "queue": next_state["queue"],
-                "can_hold": next_state["can_hold"]
-            }
-            current_q_values = self.model.predict(state_inputs, verbose=0)[0]
-            next_q_values = self.model.predict(next_state_inputs, verbose=0)[0]
-            
-            # Target computation based on reward and next state
-            target = reward
-            if not done:
-                target += self.gamma * np.max(next_q_values)  # Add discounted max Q-value of next state
-
-            # Create updated Q-values for the current state
-            target_q_values = current_q_values.copy()
-            if action["index"] < len(target_q_values):  # Update only valid action index
-                target_q_values[action["index"]] = target
 
 
-            # Train the model on this adjusted target
-            self.model.fit(state_inputs, np.expand_dims(target_q_values, axis=0), epochs=1, verbose=0)
-
-        # Decay epsilon for better exploration-exploitation balance
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-
-
+    
     def test(self):
         test_inputs = {
             "grid": np.zeros((1, 20, 10)),
@@ -161,4 +144,4 @@ def temp():
     ai = AIPart(load=False)
     ai.train(simulator, episodes=2000)
     ai.model.save("tetris_ai_model.keras")
-#temp()
+temp()
